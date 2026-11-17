@@ -519,7 +519,17 @@
     install.hidden = false;
   }
   if ("serviceWorker" in navigator && location.protocol !== "file:") {
-    window.addEventListener("load", () => { navigator.serviceWorker.register("sw.js").catch(() => {}); });
+    // Когда на сайте появилась новая версия, страница один раз перезагружается сама.
+    // Ответы при этом не теряются: они хранятся отдельно, в памяти браузера.
+    const hadController = !!navigator.serviceWorker.controller;
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (!hadController || reloaded) return;
+      reloaded = true; location.reload();
+    });
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("sw.js").then((reg) => reg.update()).catch(() => {});
+    });
   }
 
   render();
