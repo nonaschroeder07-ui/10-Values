@@ -366,12 +366,8 @@
       const fb = () => { note.textContent = "Не получилось скопировать автоматически — попробуй «Скачать файл»."; };
       try { navigator.clipboard.writeText(txt).then(() => { note.textContent = "Скопировано."; }, fb); } catch (e) { fb(); }
     };
-    const download = () => {
-      const blob = new Blob([resultText()], { type: "text/markdown;charset=utf-8" });
-      const a = h("a", { href: URL.createObjectURL(blob), download: "мои-ценности.md" });
-      document.body.append(a); a.click(); a.remove();
-      setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-    };
+    const download = () => saveBlob(new Blob([resultText()], { type: "text/markdown;charset=utf-8" }), "Мои ценности.md");
+    const pdfBtn = h("button", { class: "primary", type: "button", onclick: () => savePdf(pdfBtn, note) }, "Сохранить PDF");
     return [h("section", { class: "card soft" },
       h("div", { class: "q-label", text: "Итог" }),
       h("h1", { class: "q-title" }, "Мои ", h("span", { class: "gold-text", text: "ценности" })),
@@ -382,11 +378,90 @@
         h("div", { class: "prio" }, state.prio.map((id) => h("div", { text: ensureInfo(id).name })))),
       h("div", { class: "field" }, h("div", { class: "lbl", text: "Моё описание" }), h("p", { class: "statement", text: state.statement.trim() })),
       h("div", { class: "row" },
-        h("button", { class: "primary", type: "button", onclick: copy }, "Скопировать итог"),
-        h("button", { class: "ghost", type: "button", onclick: download }, "Скачать файл"),
+        pdfBtn,
+        h("button", { class: "ghost", type: "button", onclick: copy }, "Скопировать текст"),
+        h("button", { class: "ghost", type: "button", onclick: download }, "Сохранить текстом"),
         navigator.share ? h("button", { class: "ghost", type: "button", onclick: () => navigator.share({ title: "Мои ценности", text: resultText() }).catch(() => {}) }, "Поделиться") : null,
         note)
     ), nav({ next: false })];
+  }
+
+  // ——— сохранение файлов и PDF ———
+  function saveBlob(blob, name) {
+    const a = h("a", { href: URL.createObjectURL(blob), download: name });
+    document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  }
+
+  // Библиотека для PDF загружается только по нажатию кнопки; после первого раза она хранится в телефоне
+  const PDF_LIB = "https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js";
+  function loadPdfLib() {
+    if (window.html2pdf) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = PDF_LIB; s.crossOrigin = "anonymous";
+      s.onload = () => (window.html2pdf ? resolve() : reject(new Error("no lib")));
+      s.onerror = () => reject(new Error("load failed"));
+      document.head.append(s);
+    });
+  }
+
+  // Отдельный макет страницы A4 для PDF: таблица всегда целиком, без «телефонных» карточек
+  function pdfSheet() {
+    const date = new Date().toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" });
+    const rows = state.chosen.map((id, i) => {
+      const inf = ensureInfo(id);
+      return h("div", { class: "s-row" },
+        h("div", { class: "s-n", text: String(i + 1) }),
+        h("div", { class: "s-v" }, inf.name, h("small", { text: "важность " + inf.imp + "/5" })),
+        h("div", { text: inf.meaning }),
+        h("div", { class: "s-ex", text: inf.example }));
+    });
+    return h("div", { class: "sheet" },
+      h("div", { class: "s-eyebrow", text: "Личная сессия · " + date }),
+      h("div", { class: "s-title", text: "Мои ценности" }),
+      h("div", { class: "s-rule" }),
+      h("div", { class: "s-row s-head" }, h("div", { text: "№" }), h("div", { text: "Моя ценность" }), h("div", { text: "Что она означает именно для меня" }), h("div", { text: "Пример из моих ответов" })),
+      rows,
+      h("div", { class: "s-block" },
+        h("div", { class: "s-label", text: "Три текущих приоритета" }),
+        h("div", { class: "s-prio" }, state.prio.map((id) => h("div", { text: ensureInfo(id).name })))),
+      h("div", { class: "s-block" },
+        h("div", { class: "s-label", text: "Для меня важно" }),
+        h("p", { class: "s-statement", text: state.statement.trim() })),
+      h("div", { class: "s-foot", text: "Мои 10 ценностей" }));
+  }
+
+  async function savePdf(btn, note) {
+    btn.disabled = true; note.textContent = "Готовлю PDF…";
+    const holder = h("div", { class: "sheet-holder", "aria-hidden": "true" });
+    try {
+      await loadPdfLib();
+      const sheet = pdfSheet(); holder.append(sheet); document.body.append(holder);
+      if (document.fonts && document.fonts.ready) await document.fonts.ready;
+      const blob = await window.html2pdf().set({
+        margin: [12, 10, 14, 10],
+        image: { type: "jpeg", quality: 0.95 },
+        html2canvas: { scale: 2, useCORS: true, backgroundColor: "#FFFFFF" },
+        jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+        pagebreak: { mode: ["css", "legacy"], avoid: [".s-row", ".s-block"] }
+      }).from(sheet).outputPdf("blob");
+      const name = "Мои ценности.pdf";
+      const file = typeof File === "function" ? new File([blob], name, { type: "application/pdf" }) : null;
+      const phone = window.matchMedia("(pointer: coarse)").matches;
+      if (phone && file && navigator.canShare && navigator.canShare({ files: [file] })) {
+        try { await navigator.share({ files: [file], title: "Мои ценности" }); note.textContent = "Готово. Выбери «Сохранить в Файлы» или нужное приложение."; }
+        catch (e) { note.textContent = e && e.name === "AbortError" ? "" : "Не получилось открыть меню. Попробуй ещё раз."; }
+      } else {
+        saveBlob(blob, name);
+        note.textContent = "PDF сохранён в «Загрузки».";
+      }
+    } catch (e) {
+      note.textContent = "Не получилось создать PDF. Открываю печать: выбери «Сохранить как PDF».";
+      setTimeout(() => window.print(), 300);
+    } finally {
+      holder.remove(); btn.disabled = false;
+    }
   }
 
   // ——— отрисовка ———

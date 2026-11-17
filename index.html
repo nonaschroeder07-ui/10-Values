@@ -176,6 +176,33 @@ td.ex { color: var(--muted); font-style: italic; }
 .danger-btn { background: var(--danger); color: #fff; border: 0; border-radius: 999px; padding: 7px 14px; font-size: .9rem; }
 .foot { text-align: center; color: var(--muted); font-size: .8rem; margin: 0; }
 
+/* Макет PDF (лист A4, рисуется вне экрана) */
+.sheet-holder { position: fixed; left: -10000px; top: 0; }
+.sheet { width: 760px; background: #FFFFFF; color: #2B2418; font-family: var(--f-body); font-size: 13px; line-height: 1.5; padding: 8px 6px; }
+.s-eyebrow { font-size: 10px; letter-spacing: .26em; text-transform: uppercase; color: #8F6D2C; font-weight: 600; }
+.s-title { font-family: var(--f-display); font-size: 40px; font-weight: 600; color: #2B2418; margin-top: 6px; line-height: 1.1; }
+.s-rule { height: 2px; margin: 14px 0 6px; background: linear-gradient(90deg, #E2C47F, #8F6D2C 60%, rgba(143, 109, 44, 0)); }
+.s-row { display: grid; grid-template-columns: 30px 150px minmax(0, 1fr) minmax(0, 1fr); gap: 14px; padding: 10px 0; border-bottom: 1px solid #EADFC8; break-inside: avoid; page-break-inside: avoid; }
+.s-head { font-size: 9.5px; letter-spacing: .16em; text-transform: uppercase; color: #8F6D2C; font-weight: 600; border-bottom: 1px solid #DCC594; }
+.s-n { font-family: var(--f-display); font-style: italic; font-size: 20px; color: #8F6D2C; line-height: 1.1; }
+.s-v { font-family: var(--f-display); font-size: 18px; font-weight: 600; line-height: 1.15; }
+.s-v small { display: block; font-family: var(--f-body); font-size: 10.5px; font-weight: 400; color: #7B6F5B; margin-top: 3px; }
+.s-ex { color: #7B6F5B; font-style: italic; }
+.s-block { margin-top: 22px; break-inside: avoid; page-break-inside: avoid; }
+.s-label { font-size: 9.5px; letter-spacing: .2em; text-transform: uppercase; color: #8F6D2C; font-weight: 600; margin-bottom: 8px; }
+.s-prio { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.s-prio div { border: 1px solid #BF9A4E; background: #FBF5E7; border-radius: 10px; padding: 12px 14px; font-family: var(--f-display); font-size: 20px; font-weight: 600; color: #8F6D2C; }
+.s-statement { margin: 0; font-family: var(--f-display); font-style: italic; font-size: 19px; line-height: 1.5; border-left: 2px solid #BF9A4E; padding-left: 14px; white-space: pre-wrap; }
+.s-foot { margin-top: 26px; text-align: center; font-size: 9.5px; letter-spacing: .22em; text-transform: uppercase; color: #BF9A4E; }
+
+/* Запасной путь: печать → «Сохранить как PDF» */
+@media print {
+  body { background: #FFFFFF; padding: 0; }
+  .top, .progress, .nav, .install, .foot, .row, #resetZone { display: none !important; }
+  .card { box-shadow: none; border: 0; padding: 0; }
+  .sheet-holder { display: none; }
+}
+
 @media (max-width: 560px) {
   body { font-size: 15px; padding-block: 20px 28px; }
   .card { padding: 22px 18px; }
