@@ -405,47 +405,88 @@
       document.head.append(s);
     });
   }
+  // PDF собирается из готовых листов A4: каждый лист раскладывается заранее,
+  // поэтому строки не обрезаются и не разрываются между страницами.
+  const PDF_MARGIN = [12, 12, 12, 12]; // мм: сверху, слева, снизу, справа
 
-  // Отдельный макет страницы A4 для PDF: таблица всегда целиком, без «телефонных» карточек
-  function pdfSheet() {
+  function pdfBlocks() {
     const date = new Date().toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" });
-    const rows = state.chosen.map((id, i) => {
-      const inf = ensureInfo(id);
-      return h("div", { class: "s-row" },
-        h("div", { class: "s-n", text: String(i + 1) }),
-        h("div", { class: "s-v" }, inf.name, h("small", { text: "важность " + inf.imp + "/5" })),
-        h("div", { text: inf.meaning }),
-        h("div", { class: "s-ex", text: inf.example }));
-    });
-    return h("div", { class: "sheet" },
+    const head = () => h("div", { class: "s-row s-head" }, h("div", { text: "№" }), h("div", { text: "Моя ценность" }), h("div", { text: "Что она означает именно для меня" }), h("div", { text: "Пример из моих ответов" }));
+    const blocks = [{ el: h("div", { class: "s-header" },
       h("div", { class: "s-eyebrow", text: "Личная сессия · " + date }),
       h("div", { class: "s-title", text: "Мои ценности" }),
-      h("div", { class: "s-rule" }),
-      h("div", { class: "s-row s-head" }, h("div", { text: "№" }), h("div", { text: "Моя ценность" }), h("div", { text: "Что она означает именно для меня" }), h("div", { text: "Пример из моих ответов" })),
-      rows,
-      h("div", { class: "s-block" },
-        h("div", { class: "s-label", text: "Три текущих приоритета" }),
-        h("div", { class: "s-prio" }, state.prio.map((id) => h("div", { text: ensureInfo(id).name })))),
-      h("div", { class: "s-block" },
-        h("div", { class: "s-label", text: "Для меня важно" }),
-        h("p", { class: "s-statement", text: state.statement.trim() })),
-      h("div", { class: "s-foot", text: "Мои 10 ценностей" }));
+      h("div", { class: "s-rule" })) }];
+    blocks.push({ el: head(), tableHead: true });
+    state.chosen.forEach((id, i) => {
+      const inf = ensureInfo(id);
+      blocks.push({ row: true, el: h("div", { class: "s-row" },
+        h("div", { class: "s-n", text: String(i + 1) }),
+        h("div", { class: "s-v" }, inf.name, h("small", { text: "важность " + inf.imp + "/5" })),
+        h("div", { class: "s-m", text: inf.meaning }),
+        h("div", { class: "s-ex", text: inf.example })) });
+    });
+    blocks.push({ el: h("div", { class: "s-block" },
+      h("div", { class: "s-label", text: "Три текущих приоритета" }),
+      h("div", { class: "s-prio" }, state.prio.map((id) => h("div", { text: ensureInfo(id).name })))) });
+    blocks.push({ el: h("div", { class: "s-block" },
+      h("div", { class: "s-label", text: "Для меня важно" }),
+      h("p", { class: "s-statement", text: state.statement.trim() })) });
+    return { blocks, head };
+  }
+
+  // Раскладывает блоки по листам, на продолжении таблицы повторяет её шапку
+  function pdfPages(holder) {
+    const { blocks, head } = pdfBlocks();
+    const pages = [];
+    let body;
+    const newPage = () => {
+      const page = h("div", { class: "pdf-page" });
+      body = h("div", { class: "pdf-body" });
+      page.append(body); holder.append(page); pages.push(page);
+    };
+    const room = () => pages[pages.length - 1].clientHeight - 40; // место под колонтитул
+    newPage();
+    blocks.forEach((b, i) => {
+      body.append(b.el);
+      if (body.offsetHeight > room() && body.children.length > 1) {
+        b.el.remove();
+        // шапка таблицы не должна остаться одна внизу листа
+        const last = body.lastElementChild;
+        const carryHead = last && last.classList.contains("s-head");
+        if (carryHead) last.remove();
+        newPage();
+        if (b.row || carryHead) body.append(head());
+        body.append(b.el);
+      }
+    });
+    pages.forEach((p, i) => p.append(h("div", { class: "pdf-foot" },
+      h("span", { text: "Мои 10 ценностей" }),
+      h("span", { text: pages.length > 1 ? "стр. " + (i + 1) + " из " + pages.length : "" }))));
+    return pages;
   }
 
   async function savePdf(btn, note) {
     btn.disabled = true; note.textContent = "Готовлю PDF…";
     const holder = h("div", { class: "sheet-holder", "aria-hidden": "true" });
+    const scrollY = window.scrollY;
     try {
       await loadPdfLib();
-      const sheet = pdfSheet(); holder.append(sheet); document.body.append(holder);
+      document.body.append(holder);
       if (document.fonts && document.fonts.ready) await document.fonts.ready;
-      const blob = await window.html2pdf().set({
-        margin: [12, 10, 14, 10],
-        image: { type: "jpeg", quality: 0.95 },
-        html2canvas: { scale: 2, useCORS: true, backgroundColor: "#FFFFFF" },
-        jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
-        pagebreak: { mode: ["css", "legacy"], avoid: [".s-row", ".s-block"] }
-      }).from(sheet).outputPdf("blob");
+      const pages = pdfPages(holder);
+      window.scrollTo(0, 0); // иначе в PDF появляется пустое место сверху
+      const opt = {
+        margin: PDF_MARGIN,
+        image: { type: "jpeg", quality: 0.96 },
+        html2canvas: { scale: 2, backgroundColor: "#FFFFFF", scrollX: 0, scrollY: 0 },
+        jsPDF: { unit: "mm", format: "a4", orientation: "portrait" }
+      };
+      let worker = window.html2pdf().set(opt).from(pages[0]).toPdf();
+      pages.slice(1).forEach((p) => {
+        worker = worker.get("pdf").then((pdf) => { pdf.addPage(); }).from(p).toContainer().toCanvas().toPdf();
+      });
+      const blob = await worker.outputPdf("blob");
+      window.scrollTo(0, scrollY);
       const name = "Мои ценности.pdf";
       const file = typeof File === "function" ? new File([blob], name, { type: "application/pdf" }) : null;
       const phone = window.matchMedia("(pointer: coarse)").matches;
@@ -457,6 +498,7 @@
         note.textContent = "PDF сохранён в «Загрузки».";
       }
     } catch (e) {
+      window.scrollTo(0, scrollY);
       note.textContent = "Не получилось создать PDF. Открываю печать: выбери «Сохранить как PDF».";
       setTimeout(() => window.print(), 300);
     } finally {
