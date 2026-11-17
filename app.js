@@ -394,17 +394,22 @@
   }
 
   // Библиотека для PDF загружается только по нажатию кнопки; после первого раза она хранится в телефоне
-  const PDF_LIB = "https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js";
-  function loadPdfLib() {
-    if (window.html2pdf) return Promise.resolve();
+  // html2canvas делает снимок листа, jsPDF собирает из снимков документ
+  const PDF_LIBS = [
+    ["html2canvas", "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"],
+    ["jspdf", "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"]
+  ];
+  function loadScript(globalName, src) {
+    if (window[globalName]) return Promise.resolve();
     return new Promise((resolve, reject) => {
       const s = document.createElement("script");
-      s.src = PDF_LIB; s.crossOrigin = "anonymous";
-      s.onload = () => (window.html2pdf ? resolve() : reject(new Error("no lib")));
+      s.src = src; s.crossOrigin = "anonymous";
+      s.onload = () => (window[globalName] ? resolve() : reject(new Error("no " + globalName)));
       s.onerror = () => reject(new Error("load failed"));
       document.head.append(s);
     });
   }
+  const loadPdfLib = () => Promise.all(PDF_LIBS.map(([g, src]) => loadScript(g, src)));
   // PDF собирается из готовых листов A4: каждый лист раскладывается заранее,
   // поэтому строки не обрезаются и не разрываются между страницами.
   const PDF_MARGIN = [12, 12, 12, 12]; // мм: сверху, слева, снизу, справа
@@ -474,19 +479,30 @@
       document.body.append(holder);
       if (document.fonts && document.fonts.ready) await document.fonts.ready;
       const pages = pdfPages(holder);
-      window.scrollTo(0, 0); // иначе в PDF появляется пустое место сверху
-      const opt = {
-        margin: PDF_MARGIN,
-        image: { type: "jpeg", quality: 0.96 },
-        html2canvas: { scale: 2, backgroundColor: "#FFFFFF", scrollX: 0, scrollY: 0 },
-        jsPDF: { unit: "mm", format: "a4", orientation: "portrait" }
-      };
-      let worker = window.html2pdf().set(opt).from(pages[0]).toPdf();
-      pages.slice(1).forEach((p) => {
-        worker = worker.get("pdf").then((pdf) => { pdf.addPage(); }).from(p).toContainer().toCanvas().toPdf();
-      });
-      const blob = await worker.outputPdf("blob");
-      window.scrollTo(0, scrollY);
+      // Снимок каждого листа делается в отдельной копии страницы, где лист стоит в левом верхнем углу
+      // широкого окна, — поэтому ширина экрана телефона и прокрутка на результат не влияют.
+      const pageW = pages[0].offsetWidth, pageH = pages[0].offsetHeight;
+      const pdf = new window.jspdf.jsPDF({ unit: "mm", format: "a4", orientation: "portrait" });
+      const [mt, ml] = PDF_MARGIN, innerW = 210 - PDF_MARGIN[1] - PDF_MARGIN[3];
+      for (let i = 0; i < pages.length; i++) {
+        pages.forEach((p, j) => { p.dataset.pdfIndex = String(j); });
+        const canvas = await window.html2canvas(pages[i], {
+          scale: 2, backgroundColor: "#FFFFFF", useCORS: true, logging: false,
+          scrollX: 0, scrollY: 0, x: 0, y: 0, width: pageW, height: pageH,
+          windowWidth: pageW + 40, windowHeight: pageH + 40,
+          onclone: (doc) => {
+            const hold = doc.querySelector(".sheet-holder");
+            hold.style.cssText = "position:absolute;left:0;top:0;margin:0;padding:0;";
+            doc.querySelectorAll(".pdf-page").forEach((p) => { p.style.display = p.dataset.pdfIndex === String(i) ? "block" : "none"; });
+            doc.body.style.cssText = "margin:0;padding:0;background:#FFFFFF;";
+            const wrap = doc.querySelector(".wrap"); if (wrap) wrap.style.display = "none";
+            doc.documentElement.style.padding = "0";
+          }
+        });
+        if (i > 0) pdf.addPage();
+        pdf.addImage(canvas.toDataURL("image/jpeg", 0.95), "JPEG", ml, mt, innerW, innerW * canvas.height / canvas.width);
+      }
+      const blob = pdf.output("blob");
       const name = "Мои ценности.pdf";
       const file = typeof File === "function" ? new File([blob], name, { type: "application/pdf" }) : null;
       const phone = window.matchMedia("(pointer: coarse)").matches;

@@ -1,7 +1,7 @@
 // Service worker: сохраняет приложение на устройстве, чтобы оно открывалось без интернета.
 // Стратегия: сразу отдаём сохранённую копию, а в фоне скачиваем свежую.
 // После любого изменения файлов приложения увеличить VERSION.
-const VERSION = 'v5';
+const VERSION = 'v6';
 const PDF_LIB_ORIGIN = 'https://cdnjs.cloudflare.com';
 const CACHE = 'values-free-' + VERSION;
 const FILES = [
